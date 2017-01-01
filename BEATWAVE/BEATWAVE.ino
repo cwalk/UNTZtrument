@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <Adafruit_Trellis.h>
 #include <Adafruit_UNTZtrument.h>
+#include "MIDIUSB.h"
 
 #define LED 13 // Pin for heartbeat LED (shows code is working)
 
@@ -57,18 +58,34 @@ void setup() {
   untztrument.begin(addr[0], addr[1], addr[2], addr[3],
                     addr[4], addr[5], addr[6], addr[7]);
 #endif // HELLA
-#ifdef __AVR__
   // Default Arduino I2C speed is 100 KHz, but the HT16K33 supports
   // 400 KHz.  We can force this for faster read & refresh, but may
   // break compatibility with other I2C devices...so be prepared to
   // comment this out, or save & restore value as needed.
-  TWBR = 12;
+#ifdef ARDUINO_ARCH_SAMD
+  Wire.setClock(400000L);
+#endif
+#ifdef __AVR__
+  TWBR = 12; // 400 KHz I2C on 16 MHz AVR
 #endif
   untztrument.clear();
   untztrument.writeDisplay();
   memset(grid, 0, sizeof(grid));
+  enc::begin();                     // Initialize all encoder pins
   e.setBounds(60 * 4, 480 * 4 + 3); // Set tempo limits
   e.setValue(bpm * 4);              // *4's for encoder detents
+}
+
+void noteOn(byte channel, byte pitch, byte velocity) {
+  midiEventPacket_t noteOn = {0x09, 0x90 | channel, pitch, velocity};
+  MidiUSB.sendMIDI(noteOn);
+  MidiUSB.flush();
+}
+
+void noteOff(byte channel, byte pitch, byte velocity) {
+  midiEventPacket_t noteOff = {0x08, 0x80 | channel, pitch, velocity};
+  MidiUSB.sendMIDI(noteOff);
+  MidiUSB.flush();
 }
 
 // Turn on (or off) one column of the display
@@ -97,8 +114,7 @@ void loop() {
           if(grid[x] & mask) { // Already set?  Turn off...
             grid[x] &= ~mask;
             untztrument.clrLED(i);
-            usbMIDI.sendNoteOff(pgm_read_byte(&note[y]),
-              127, pgm_read_byte(&channel[y]));
+            noteOff(pgm_read_byte(&channel[y]), pgm_read_byte(&note[y]), 127);
           } else { // Turn on
             grid[x] |= mask;
             untztrument.setLED(i);
@@ -116,8 +132,7 @@ void loop() {
     line(col, false);
     for(uint8_t row=0, mask=1; row<8; row++, mask <<= 1) {
       if(grid[col] & mask) {
-        usbMIDI.sendNoteOff(pgm_read_byte(&note[row]), 127,
-          pgm_read_byte(&channel[row]));
+        noteOff(pgm_read_byte(&channel[row]), pgm_read_byte(&note[row]), 127);
       }
     }
     // Advance column counter, wrap around
@@ -126,8 +141,7 @@ void loop() {
     line(col, true);
     for(uint8_t row=0, mask=1; row<8; row++, mask <<= 1) {
       if(grid[col] & mask) {
-        usbMIDI.sendNoteOn(pgm_read_byte(&note[row]), 127,
-          pgm_read_byte(&channel[row]));
+          noteOn(pgm_read_byte(&channel[row]), pgm_read_byte(&note[row]), 127);
       }
     }
     prevBeatTime = t;
@@ -138,5 +152,4 @@ void loop() {
 
   if(refresh) untztrument.writeDisplay();
 
-  while(usbMIDI.read()); // Discard incoming MIDI messages
 }

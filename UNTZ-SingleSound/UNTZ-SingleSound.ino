@@ -6,6 +6,7 @@
 #include <Wire.h>
 #include <Adafruit_Trellis.h>
 #include <Adafruit_UNTZtrument.h>
+#include "MIDIUSB.h"
 
 #define LED     13 // Pin for heartbeat LED (shows code is working)
 #define CHANNEL 1  // MIDI channel number
@@ -47,15 +48,30 @@ void setup() {
   untztrument.begin(addr[0], addr[1], addr[2], addr[3],
                     addr[4], addr[5], addr[6], addr[7]);
 #endif // HELLA
-#ifdef __AVR__
   // Default Arduino I2C speed is 100 KHz, but the HT16K33 supports
   // 400 KHz.  We can force this for faster read & refresh, but may
   // break compatibility with other I2C devices...so be prepared to
   // comment this out, or save & restore value as needed.
-  TWBR = 12;
+#ifdef ARDUINO_ARCH_SAMD
+  Wire.setClock(400000L);
+#endif
+#ifdef __AVR__
+  TWBR = 12; // 400 KHz I2C on 16 MHz AVR
 #endif
   untztrument.clear();
   untztrument.writeDisplay();
+}
+
+void noteOn(byte channel, byte pitch, byte velocity) {
+  midiEventPacket_t noteOn = {0x09, 0x90 | channel, pitch, velocity};
+  MidiUSB.sendMIDI(noteOn);
+  MidiUSB.flush();
+}
+
+void noteOff(byte channel, byte pitch, byte velocity) {
+  midiEventPacket_t noteOff = {0x08, 0x80 | channel, pitch, velocity};
+  MidiUSB.sendMIDI(noteOff);
+  MidiUSB.flush();
 }
 
 void loop() {
@@ -68,10 +84,10 @@ void loop() {
         untztrument.i2xy(i, &x, &y);
         note = LOWNOTE + y * WIDTH + x;
         if(untztrument.justPressed(i)) {
-          usbMIDI.sendNoteOn(note, 127, CHANNEL);
+          noteOn(CHANNEL, note, 127);
           untztrument.setLED(i);
         } else if(untztrument.justReleased(i)) {
-          usbMIDI.sendNoteOff(note, 0, CHANNEL);
+          noteOff(CHANNEL, note, 0);
           untztrument.clrLED(i);
         }
       }
@@ -80,24 +96,4 @@ void loop() {
     prevReadTime = t;
     digitalWrite(LED, ++heart & 32); // Blink = alive
   }
-  while(usbMIDI.read()); // Discard incoming MIDI messages
 }
-
-/* Here's the set of MIDI functions for making your own projects:
-
-  usbMIDI.sendNoteOn(note, velocity, channel)
-  usbMIDI.sendNoteOff(note, velocity, channel)
-  usbMIDI.sendPolyPressure(note, pressure, channel)
-  usbMIDI.sendControlChange(control, value, channel)
-  usbMIDI.sendProgramChange(program, channel)
-  usbMIDI.sendAfterTouch(pressure, channel)
-  usbMIDI.sendPitchBend(value, channel)
-  usbMIDI.sendSysEx(length, array)
-  usbMIDI.send_now()
-
-  Some info on MIDI note numbers can be found here:
-  http://www.phys.unsw.edu.au/jw/notes.html
-
-  Rather than MIDI, one could theoretically try using Serial to
-  create a sketch compatible with serialosc or monomeserial, but
-  those tools have proven notoriously unreliable thus far. */
