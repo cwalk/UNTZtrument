@@ -3,4 +3,4 @@ UNTZtrument: a Trellis MIDI Instrument. Created using an Arduino Leonardo, trans
 
 ## YouTube
 
-YouTube: 
+YouTube: https://www.youtube.com/watch?v=U7JcpBFUXzo&feature=youtu.be
